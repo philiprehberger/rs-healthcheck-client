@@ -1,0 +1,18 @@
+[package]
+name = "philiprehberger-healthcheck-client"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.70"
+authors = ["Philip Rehberger"]
+description = "HTTP health check client for monitoring service dependencies with configurable thresholds"
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/philiprehberger/rs-healthcheck-client"
+documentation = "https://docs.rs/philiprehberger-healthcheck-client"
+keywords = ["health", "monitoring", "http", "check", "uptime"]
+categories = ["web-programming", "network-programming"]
+
+[dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "net", "io-util", "sync", "macros", "time"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
