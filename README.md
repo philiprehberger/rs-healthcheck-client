@@ -10,12 +10,10 @@ HTTP health check client for monitoring service dependencies with configurable t
 
 ```toml
 [dependencies]
-philiprehberger-healthcheck-client = "0.1.0"
+philiprehberger-healthcheck-client = "0.1.1"
 ```
 
 ## Usage
-
-### Basic Health Checks
 
 ```rust
 use philiprehberger_healthcheck_client::HealthChecker;
