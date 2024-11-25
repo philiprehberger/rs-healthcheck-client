@@ -3,6 +3,7 @@
 [![CI](https://github.com/philiprehberger/rs-healthcheck-client/actions/workflows/ci.yml/badge.svg)](https://github.com/philiprehberger/rs-healthcheck-client/actions/workflows/ci.yml)
 [![Crates.io](https://img.shields.io/crates/v/philiprehberger-healthcheck-client.svg)](https://crates.io/crates/philiprehberger-healthcheck-client)
 [![License](https://img.shields.io/github/license/philiprehberger/rs-healthcheck-client)](LICENSE)
+[![Sponsor](https://img.shields.io/badge/sponsor-GitHub%20Sponsors-ec6cb9)](https://github.com/sponsors/philiprehberger)
 
 HTTP health check client for monitoring service dependencies with configurable thresholds
 
