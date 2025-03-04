@@ -2,7 +2,11 @@
 
 [![CI](https://github.com/philiprehberger/rs-healthcheck-client/actions/workflows/ci.yml/badge.svg)](https://github.com/philiprehberger/rs-healthcheck-client/actions/workflows/ci.yml)
 [![Crates.io](https://img.shields.io/crates/v/philiprehberger-healthcheck-client.svg)](https://crates.io/crates/philiprehberger-healthcheck-client)
+[![GitHub release](https://img.shields.io/github/v/release/philiprehberger/rs-healthcheck-client)](https://github.com/philiprehberger/rs-healthcheck-client/releases)
+[![Last updated](https://img.shields.io/github/last-commit/philiprehberger/rs-healthcheck-client)](https://github.com/philiprehberger/rs-healthcheck-client/commits/main)
 [![License](https://img.shields.io/github/license/philiprehberger/rs-healthcheck-client)](LICENSE)
+[![Bug Reports](https://img.shields.io/github/issues/philiprehberger/rs-healthcheck-client/bug)](https://github.com/philiprehberger/rs-healthcheck-client/issues?q=is%3Aissue+is%3Aopen+label%3Abug)
+[![Feature Requests](https://img.shields.io/github/issues/philiprehberger/rs-healthcheck-client/enhancement)](https://github.com/philiprehberger/rs-healthcheck-client/issues?q=is%3Aissue+is%3Aopen+label%3Aenhancement)
 [![Sponsor](https://img.shields.io/badge/sponsor-GitHub%20Sponsors-ec6cb9)](https://github.com/sponsors/philiprehberger)
 
 HTTP health check client for monitoring service dependencies with configurable thresholds
@@ -11,7 +15,7 @@ HTTP health check client for monitoring service dependencies with configurable t
 
 ```toml
 [dependencies]
-philiprehberger-healthcheck-client = "0.1.1"
+philiprehberger-healthcheck-client = "0.1.2"
 ```
 
 ## Usage
@@ -105,6 +109,13 @@ cargo test
 cargo clippy -- -D warnings
 ```
 
+## Support
+
+If you find this package useful, consider giving it a star on GitHub — it helps motivate continued maintenance and development.
+
+[![LinkedIn](https://img.shields.io/badge/Philip%20Rehberger-LinkedIn-0A66C2?logo=linkedin)](https://www.linkedin.com/in/philiprehberger)
+[![More packages](https://img.shields.io/badge/more-open%20source%20packages-blue)](https://philiprehberger.com/open-source-packages)
+
 ## License
 
-MIT
+[MIT](LICENSE)
