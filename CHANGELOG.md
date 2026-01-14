@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.2.0] - 2026-04-05
+
+- Add `HealthReport::is_degraded()` method that returns true when overall status is Degraded
+- Add `HealthReport::failed_checks()` method that returns only Unhealthy check results
+
 ## 0.1.3 (2026-03-31)
 
 - Standardize README to 3-badge format with emoji Support section
