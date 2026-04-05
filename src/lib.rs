@@ -116,6 +116,22 @@ impl HealthReport {
         self.overall == HealthStatus::Healthy
     }
 
+    /// Returns `true` if the overall status is `Degraded`.
+    ///
+    /// A degraded report indicates that some checks passed while others failed,
+    /// meaning the system is partially operational.
+    pub fn is_degraded(&self) -> bool {
+        self.overall == HealthStatus::Degraded
+    }
+
+    /// Returns references to all checks that have an `Unhealthy` status.
+    pub fn failed_checks(&self) -> Vec<&CheckResult> {
+        self.checks
+            .iter()
+            .filter(|c| c.status == HealthStatus::Unhealthy)
+            .collect()
+    }
+
     /// Returns references to all checks that are not `Healthy`.
     pub fn unhealthy_checks(&self) -> Vec<&CheckResult> {
         self.checks
@@ -843,6 +859,128 @@ mod tests {
         assert_eq!(HealthStatus::Healthy.to_string(), "Healthy");
         assert_eq!(HealthStatus::Degraded.to_string(), "Degraded");
         assert_eq!(HealthStatus::Unhealthy.to_string(), "Unhealthy");
+    }
+
+    #[test]
+    fn test_is_degraded() {
+        let healthy_report = HealthReport {
+            overall: HealthStatus::Healthy,
+            checks: vec![CheckResult {
+                name: "a".to_string(),
+                status: HealthStatus::Healthy,
+                latency_ms: 1,
+                message: None,
+                timestamp: 0,
+            }],
+            timestamp: 0,
+        };
+        assert!(!healthy_report.is_degraded());
+
+        let degraded_report = HealthReport {
+            overall: HealthStatus::Degraded,
+            checks: vec![
+                CheckResult {
+                    name: "a".to_string(),
+                    status: HealthStatus::Healthy,
+                    latency_ms: 1,
+                    message: None,
+                    timestamp: 0,
+                },
+                CheckResult {
+                    name: "b".to_string(),
+                    status: HealthStatus::Degraded,
+                    latency_ms: 2,
+                    message: None,
+                    timestamp: 0,
+                },
+            ],
+            timestamp: 0,
+        };
+        assert!(degraded_report.is_degraded());
+
+        let unhealthy_report = HealthReport {
+            overall: HealthStatus::Unhealthy,
+            checks: vec![CheckResult {
+                name: "a".to_string(),
+                status: HealthStatus::Unhealthy,
+                latency_ms: 1,
+                message: None,
+                timestamp: 0,
+            }],
+            timestamp: 0,
+        };
+        assert!(!unhealthy_report.is_degraded());
+    }
+
+    #[test]
+    fn test_failed_checks() {
+        let report = HealthReport {
+            overall: HealthStatus::Unhealthy,
+            checks: vec![
+                CheckResult {
+                    name: "ok".to_string(),
+                    status: HealthStatus::Healthy,
+                    latency_ms: 1,
+                    message: None,
+                    timestamp: 0,
+                },
+                CheckResult {
+                    name: "bad".to_string(),
+                    status: HealthStatus::Unhealthy,
+                    latency_ms: 100,
+                    message: None,
+                    timestamp: 0,
+                },
+                CheckResult {
+                    name: "slow".to_string(),
+                    status: HealthStatus::Degraded,
+                    latency_ms: 500,
+                    message: None,
+                    timestamp: 0,
+                },
+                CheckResult {
+                    name: "down".to_string(),
+                    status: HealthStatus::Unhealthy,
+                    latency_ms: 200,
+                    message: None,
+                    timestamp: 0,
+                },
+            ],
+            timestamp: 0,
+        };
+
+        let failed = report.failed_checks();
+        assert_eq!(failed.len(), 2);
+        assert!(failed.iter().any(|c| c.name == "bad"));
+        assert!(failed.iter().any(|c| c.name == "down"));
+        // Degraded checks should NOT be included in failed_checks
+        assert!(!failed.iter().any(|c| c.name == "slow"));
+    }
+
+    #[test]
+    fn test_failed_checks_empty_when_all_healthy() {
+        let report = HealthReport {
+            overall: HealthStatus::Healthy,
+            checks: vec![
+                CheckResult {
+                    name: "a".to_string(),
+                    status: HealthStatus::Healthy,
+                    latency_ms: 1,
+                    message: None,
+                    timestamp: 0,
+                },
+                CheckResult {
+                    name: "b".to_string(),
+                    status: HealthStatus::Healthy,
+                    latency_ms: 2,
+                    message: None,
+                    timestamp: 0,
+                },
+            ],
+            timestamp: 0,
+        };
+
+        assert!(report.failed_checks().is_empty());
     }
 
     #[test]

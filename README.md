@@ -10,7 +10,7 @@ HTTP health check client for monitoring service dependencies with configurable t
 
 ```toml
 [dependencies]
-philiprehberger-healthcheck-client = "0.1.2"
+philiprehberger-healthcheck-client = "0.2.0"
 ```
 
 ## Usage
@@ -93,6 +93,8 @@ let json = report.to_json();
 | `.check_one(name)` | Run a single check by name |
 | `HealthReport.overall` | Overall status derived from all checks |
 | `HealthReport.is_healthy()` | Returns `true` if overall status is Healthy |
+| `HealthReport.is_degraded()` | Returns `true` if overall status is Degraded |
+| `HealthReport.failed_checks()` | Returns only `Unhealthy` check results |
 | `HealthReport.unhealthy_checks()` | Returns non-healthy check results |
 | `HealthReport.to_json()` | Serialize report to JSON |
 | `HealthReport.summary()` | Human-readable summary string |
