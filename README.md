@@ -10,7 +10,7 @@ HTTP health check client for monitoring service dependencies with configurable t
 
 ```toml
 [dependencies]
-philiprehberger-healthcheck-client = "0.2.0"
+philiprehberger-healthcheck-client = "0.3.0"
 ```
 
 ## Usage
@@ -40,6 +40,33 @@ let mut checker = HealthChecker::new();
 checker
     .add_http_with("api", "http://localhost:8080/health", 200, 3000)
     .add_tcp_with("db", "127.0.0.1", 5432, 2000);
+```
+
+### HTTP Method (HEAD vs GET)
+
+```rust
+use philiprehberger_healthcheck_client::{HealthChecker, HttpMethod};
+
+let mut checker = HealthChecker::new();
+checker.add_http_with_method("api", "http://localhost:8080/health", HttpMethod::Head);
+```
+
+### Status Code Range
+
+```rust
+use philiprehberger_healthcheck_client::HealthChecker;
+
+let mut checker = HealthChecker::new();
+// Accept any 2xx response
+checker.add_http_status_range("api", "http://localhost:8080/health", 200, 299);
+```
+
+### Latency Aggregates
+
+```rust
+let report = checker.check_all().await;
+println!("p50: {:?}ms", report.latency_p50());
+println!("p95: {:?}ms", report.latency_p95());
 ```
 
 ### Custom Checks
@@ -82,9 +109,13 @@ let json = report.to_json();
 | `HealthStatus` | Enum: `Healthy`, `Degraded`, `Unhealthy` |
 | `CheckResult` | Result of a single check (name, status, latency, message, timestamp) |
 | `Check` | Check definition enum: `Http`, `Tcp`, `Custom` |
+| `HttpMethod` | Enum: `Get`, `Head` |
+| `StatusMatch` | Enum: `Exact(code)`, `Range(min, max)` |
 | `HealthChecker::new()` | Create a new checker with no checks |
-| `.add_http(name, url)` | Add HTTP check (expects 200, 5s timeout) |
-| `.add_http_with(name, url, status, timeout_ms)` | Add HTTP check with custom settings |
+| `.add_http(name, url)` | Add HTTP `GET` check (expects 200, 5s timeout) |
+| `.add_http_with(name, url, status, timeout_ms)` | Add HTTP `GET` check with custom settings |
+| `.add_http_with_method(name, url, method)` | Add HTTP check with the given `HttpMethod` |
+| `.add_http_status_range(name, url, min, max)` | Add HTTP check accepting any code in `[min, max]` |
 | `.add_tcp(name, host, port)` | Add TCP check (5s timeout) |
 | `.add_tcp_with(name, host, port, timeout_ms)` | Add TCP check with custom timeout |
 | `.add_custom(name, fn)` | Add a custom check function |
@@ -96,6 +127,9 @@ let json = report.to_json();
 | `HealthReport.is_degraded()` | Returns `true` if overall status is Degraded |
 | `HealthReport.failed_checks()` | Returns only `Unhealthy` check results |
 | `HealthReport.unhealthy_checks()` | Returns non-healthy check results |
+| `HealthReport.healthy_checks()` | Returns only `Healthy` check results |
+| `HealthReport.latency_p50()` | Median latency across checks (ms), or `None` if empty |
+| `HealthReport.latency_p95()` | 95th percentile latency (ms), or `None` if empty |
 | `HealthReport.to_json()` | Serialize report to JSON |
 | `HealthReport.summary()` | Human-readable summary string |
 

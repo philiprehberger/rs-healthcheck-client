@@ -64,11 +64,54 @@ pub struct CheckResult {
     pub timestamp: u64,
 }
 
+/// HTTP method to use for an HTTP health check.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HttpMethod {
+    /// `GET` request — full response body is read.
+    Get,
+    /// `HEAD` request — response body is not requested.
+    Head,
+}
+
+impl HttpMethod {
+    fn as_str(&self) -> &'static str {
+        match self {
+            HttpMethod::Get => "GET",
+            HttpMethod::Head => "HEAD",
+        }
+    }
+}
+
+/// Acceptable HTTP status code(s) for a check.
+#[derive(Debug, Clone, Copy)]
+pub enum StatusMatch {
+    /// Match exactly one status code.
+    Exact(u16),
+    /// Match any status code in the inclusive range `[min, max]`.
+    Range(u16, u16),
+}
+
+impl StatusMatch {
+    fn matches(&self, code: u16) -> bool {
+        match *self {
+            StatusMatch::Exact(c) => code == c,
+            StatusMatch::Range(min, max) => code >= min && code <= max,
+        }
+    }
+
+    fn describe(&self) -> String {
+        match *self {
+            StatusMatch::Exact(c) => format!("HTTP {}", c),
+            StatusMatch::Range(min, max) => format!("HTTP {}-{}", min, max),
+        }
+    }
+}
+
 /// A health check definition.
 ///
 /// Each variant represents a different type of health check that can be performed.
 pub enum Check {
-    /// An HTTP health check that makes a GET request and verifies the status code.
+    /// An HTTP health check that makes a request and verifies the status code.
     Http {
         /// Name identifying this check.
         name: String,
@@ -78,6 +121,10 @@ pub enum Check {
         expected_status: u16,
         /// Timeout in milliseconds.
         timeout_ms: u64,
+        /// HTTP method to use.
+        method: HttpMethod,
+        /// Acceptable status code(s); takes precedence over `expected_status` when set.
+        status_match: Option<StatusMatch>,
     },
     /// A TCP connectivity check.
     Tcp {
@@ -140,6 +187,26 @@ impl HealthReport {
             .collect()
     }
 
+    /// Returns references to all checks with a `Healthy` status.
+    pub fn healthy_checks(&self) -> Vec<&CheckResult> {
+        self.checks
+            .iter()
+            .filter(|c| c.status == HealthStatus::Healthy)
+            .collect()
+    }
+
+    /// Returns the median (p50) latency across all checks in milliseconds, or
+    /// `None` if there are no checks.
+    pub fn latency_p50(&self) -> Option<u64> {
+        percentile(&self.checks, 50)
+    }
+
+    /// Returns the 95th percentile latency across all checks in milliseconds,
+    /// or `None` if there are no checks.
+    pub fn latency_p95(&self) -> Option<u64> {
+        percentile(&self.checks, 95)
+    }
+
     /// Serialize the report to a JSON string.
     pub fn to_json(&self) -> String {
         serde_json::to_string_pretty(self).unwrap_or_else(|_| "{}".to_string())
@@ -161,6 +228,17 @@ impl HealthReport {
         }
         lines.join("\n")
     }
+}
+
+fn percentile(checks: &[CheckResult], p: u8) -> Option<u64> {
+    if checks.is_empty() {
+        return None;
+    }
+    let mut latencies: Vec<u64> = checks.iter().map(|c| c.latency_ms).collect();
+    latencies.sort_unstable();
+    let n = latencies.len();
+    let rank = ((p as usize * (n - 1)) + 50) / 100;
+    Some(latencies[rank.min(n - 1)])
 }
 
 fn now_unix() -> u64 {
@@ -232,6 +310,8 @@ async fn run_http_check(
     url: &str,
     expected_status: u16,
     timeout_ms: u64,
+    method: HttpMethod,
+    status_match: Option<StatusMatch>,
 ) -> CheckResult {
     let start = Instant::now();
     let ts = now_unix();
@@ -255,8 +335,10 @@ async fn run_http_check(
     let result = timeout(dur, async {
         let mut stream = TcpStream::connect(&addr).await?;
         let request = format!(
-            "GET {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n",
-            path, host
+            "{} {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n",
+            method.as_str(),
+            path,
+            host
         );
         stream.write_all(request.as_bytes()).await?;
 
@@ -267,12 +349,13 @@ async fn run_http_check(
     .await;
 
     let latency_ms = start.elapsed().as_millis() as u64;
+    let matcher = status_match.unwrap_or(StatusMatch::Exact(expected_status));
 
     match result {
         Ok(Ok(response_bytes)) => {
             let response_str = String::from_utf8_lossy(&response_bytes);
             match parse_http_status(&response_str) {
-                Some(status_code) if status_code == expected_status => CheckResult {
+                Some(status_code) if matcher.matches(status_code) => CheckResult {
                     name: name.to_string(),
                     status: HealthStatus::Healthy,
                     latency_ms,
@@ -284,8 +367,9 @@ async fn run_http_check(
                     status: HealthStatus::Unhealthy,
                     latency_ms,
                     message: Some(format!(
-                        "Expected HTTP {}, got {}",
-                        expected_status, status_code
+                        "Expected {}, got {}",
+                        matcher.describe(),
+                        status_code
                     )),
                     timestamp: ts,
                 },
@@ -389,18 +473,21 @@ impl HealthChecker {
         }
     }
 
-    /// Add an HTTP health check with default settings (expects 200, 5s timeout).
+    /// Add an HTTP health check with default settings (`GET`, expects 200, 5s timeout).
     pub fn add_http(&mut self, name: &str, url: &str) -> &mut Self {
         self.checks.push(Check::Http {
             name: name.to_string(),
             url: url.to_string(),
             expected_status: 200,
             timeout_ms: 5000,
+            method: HttpMethod::Get,
+            status_match: None,
         });
         self
     }
 
-    /// Add an HTTP health check with custom expected status code and timeout.
+    /// Add an HTTP health check with custom expected status code and timeout
+    /// (uses `GET`).
     pub fn add_http_with(
         &mut self,
         name: &str,
@@ -413,6 +500,50 @@ impl HealthChecker {
             url: url.to_string(),
             expected_status,
             timeout_ms,
+            method: HttpMethod::Get,
+            status_match: None,
+        });
+        self
+    }
+
+    /// Add an HTTP health check using the specified [`HttpMethod`] (5s timeout, expects 200).
+    ///
+    /// Useful when an endpoint expects `HEAD` for cheap probes.
+    pub fn add_http_with_method(
+        &mut self,
+        name: &str,
+        url: &str,
+        method: HttpMethod,
+    ) -> &mut Self {
+        self.checks.push(Check::Http {
+            name: name.to_string(),
+            url: url.to_string(),
+            expected_status: 200,
+            timeout_ms: 5000,
+            method,
+            status_match: None,
+        });
+        self
+    }
+
+    /// Add an HTTP health check that accepts any status code in the inclusive
+    /// range `[min, max]` (5s timeout, `GET`).
+    ///
+    /// Useful for accepting any 2xx (`add_http_status_range(name, url, 200, 299)`).
+    pub fn add_http_status_range(
+        &mut self,
+        name: &str,
+        url: &str,
+        min: u16,
+        max: u16,
+    ) -> &mut Self {
+        self.checks.push(Check::Http {
+            name: name.to_string(),
+            url: url.to_string(),
+            expected_status: min,
+            timeout_ms: 5000,
+            method: HttpMethod::Get,
+            status_match: Some(StatusMatch::Range(min, max)),
         });
         self
     }
@@ -475,13 +606,17 @@ impl HealthChecker {
                     url,
                     expected_status,
                     timeout_ms,
+                    method,
+                    status_match,
                 } => {
                     let name = name.clone();
                     let url = url.clone();
                     let expected = *expected_status;
                     let tms = *timeout_ms;
+                    let m = *method;
+                    let sm = *status_match;
                     handles.push(tokio::spawn(async move {
-                        run_http_check(&name, &url, expected, tms).await
+                        run_http_check(&name, &url, expected, tms, m, sm).await
                     }));
                 }
                 Check::Tcp {
@@ -536,7 +671,19 @@ impl HealthChecker {
                         url,
                         expected_status,
                         timeout_ms,
-                    } => run_http_check(name, url, *expected_status, *timeout_ms).await,
+                        method,
+                        status_match,
+                    } => {
+                        run_http_check(
+                            name,
+                            url,
+                            *expected_status,
+                            *timeout_ms,
+                            *method,
+                            *status_match,
+                        )
+                        .await
+                    }
                     Check::Tcp {
                         name,
                         host,
@@ -625,7 +772,8 @@ mod tests {
         let port = start_http_server(200).await;
         let url = format!("http://127.0.0.1:{}/health", port);
 
-        let result = run_http_check("test-http", &url, 200, 2000).await;
+        let result =
+            run_http_check("test-http", &url, 200, 2000, HttpMethod::Get, None).await;
         assert_eq!(result.status, HealthStatus::Healthy);
         assert_eq!(result.name, "test-http");
         assert!(result.message.unwrap().contains("200"));
@@ -636,7 +784,8 @@ mod tests {
         let port = start_http_server(503).await;
         let url = format!("http://127.0.0.1:{}/health", port);
 
-        let result = run_http_check("test-http", &url, 200, 2000).await;
+        let result =
+            run_http_check("test-http", &url, 200, 2000, HttpMethod::Get, None).await;
         assert_eq!(result.status, HealthStatus::Unhealthy);
         assert!(result.message.unwrap().contains("503"));
     }
@@ -981,6 +1130,149 @@ mod tests {
         };
 
         assert!(report.failed_checks().is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_http_check_status_range_match() {
+        let port = start_http_server(204).await;
+        let url = format!("http://127.0.0.1:{}/health", port);
+
+        let result = run_http_check(
+            "range",
+            &url,
+            200,
+            2000,
+            HttpMethod::Get,
+            Some(StatusMatch::Range(200, 299)),
+        )
+        .await;
+        assert_eq!(result.status, HealthStatus::Healthy);
+        assert!(result.message.unwrap().contains("204"));
+    }
+
+    #[tokio::test]
+    async fn test_http_check_status_range_miss() {
+        let port = start_http_server(404).await;
+        let url = format!("http://127.0.0.1:{}/health", port);
+
+        let result = run_http_check(
+            "range",
+            &url,
+            200,
+            2000,
+            HttpMethod::Get,
+            Some(StatusMatch::Range(200, 299)),
+        )
+        .await;
+        assert_eq!(result.status, HealthStatus::Unhealthy);
+        let msg = result.message.unwrap();
+        assert!(msg.contains("200-299"));
+        assert!(msg.contains("404"));
+    }
+
+    #[tokio::test]
+    async fn test_add_http_status_range_via_checker() {
+        let port = start_http_server(201).await;
+        let url = format!("http://127.0.0.1:{}/health", port);
+        let mut checker = HealthChecker::new();
+        checker.add_http_status_range("range", &url, 200, 299);
+        let result = checker.check_one("range").await.unwrap();
+        assert_eq!(result.status, HealthStatus::Healthy);
+    }
+
+    #[tokio::test]
+    async fn test_add_http_with_method_head() {
+        let port = start_http_server(200).await;
+        let url = format!("http://127.0.0.1:{}/health", port);
+        let mut checker = HealthChecker::new();
+        checker.add_http_with_method("h", &url, HttpMethod::Head);
+        let result = checker.check_one("h").await.unwrap();
+        assert_eq!(result.status, HealthStatus::Healthy);
+    }
+
+    #[test]
+    fn test_http_method_as_str() {
+        assert_eq!(HttpMethod::Get.as_str(), "GET");
+        assert_eq!(HttpMethod::Head.as_str(), "HEAD");
+    }
+
+    #[test]
+    fn test_status_match_matches() {
+        assert!(StatusMatch::Exact(200).matches(200));
+        assert!(!StatusMatch::Exact(200).matches(201));
+        assert!(StatusMatch::Range(200, 299).matches(200));
+        assert!(StatusMatch::Range(200, 299).matches(250));
+        assert!(StatusMatch::Range(200, 299).matches(299));
+        assert!(!StatusMatch::Range(200, 299).matches(300));
+        assert!(!StatusMatch::Range(200, 299).matches(199));
+    }
+
+    #[test]
+    fn test_healthy_checks() {
+        let report = HealthReport {
+            overall: HealthStatus::Degraded,
+            checks: vec![
+                CheckResult {
+                    name: "ok".to_string(),
+                    status: HealthStatus::Healthy,
+                    latency_ms: 1,
+                    message: None,
+                    timestamp: 0,
+                },
+                CheckResult {
+                    name: "bad".to_string(),
+                    status: HealthStatus::Unhealthy,
+                    latency_ms: 2,
+                    message: None,
+                    timestamp: 0,
+                },
+                CheckResult {
+                    name: "good".to_string(),
+                    status: HealthStatus::Healthy,
+                    latency_ms: 3,
+                    message: None,
+                    timestamp: 0,
+                },
+            ],
+            timestamp: 0,
+        };
+        let healthy = report.healthy_checks();
+        assert_eq!(healthy.len(), 2);
+        assert!(healthy.iter().any(|c| c.name == "ok"));
+        assert!(healthy.iter().any(|c| c.name == "good"));
+    }
+
+    #[test]
+    fn test_latency_percentiles_empty() {
+        let report = HealthReport {
+            overall: HealthStatus::Healthy,
+            checks: vec![],
+            timestamp: 0,
+        };
+        assert!(report.latency_p50().is_none());
+        assert!(report.latency_p95().is_none());
+    }
+
+    #[test]
+    fn test_latency_percentiles() {
+        let report = HealthReport {
+            overall: HealthStatus::Healthy,
+            checks: (1..=10)
+                .map(|i| CheckResult {
+                    name: format!("c{}", i),
+                    status: HealthStatus::Healthy,
+                    latency_ms: i * 10,
+                    message: None,
+                    timestamp: 0,
+                })
+                .collect(),
+            timestamp: 0,
+        };
+        // Sorted latencies: 10..=100 step 10
+        // p50 rank = round(0.5 * 9) = 5 → 60
+        // p95 rank = round(0.95 * 9) = 9 → 100
+        assert_eq!(report.latency_p50(), Some(60));
+        assert_eq!(report.latency_p95(), Some(100));
     }
 
     #[test]

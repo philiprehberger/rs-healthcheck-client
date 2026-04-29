@@ -1,6 +1,13 @@
 # Changelog
 
-## [0.2.0] - 2026-04-05
+## 0.3.0 (2026-04-28)
+
+- Add `HttpMethod` enum (`Get`, `Head`) and `add_http_with_method()` for HEAD-style probes
+- Add `StatusMatch` enum and `add_http_status_range(min, max)` for accepting any status in a range
+- Add `HealthReport::healthy_checks()` for symmetry with `failed_checks()` / `unhealthy_checks()`
+- Add `HealthReport::latency_p50()` and `latency_p95()` for quick latency aggregates
+
+## 0.2.0 (2026-04-05)
 
 - Add `HealthReport::is_degraded()` method that returns true when overall status is Degraded
 - Add `HealthReport::failed_checks()` method that returns only Unhealthy check results
